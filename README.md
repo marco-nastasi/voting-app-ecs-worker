@@ -9,21 +9,21 @@ This repository contains the source code and a CI/CD pipeline to deploy the **wo
 - [Github Actions variables and secrets](#github-actions-variables-and-secrets)
 - [CI/CD Workflow steps](#cicd-workflow-steps)
 
-## Components:
+## Components
 
 There are three main components in this project:
 - **"Worker" container source code and Dockerfile** to build the image
 - **"Worker" container task definition** to deploy the container in AWS ECS. There are missing fields in this file, which will be filled dinamically by the CI/CD workflow during the deployment
 - **CI/CD workflow** to automate deployments
 
-## Usage:
+## Usage
 
 The CI/CD workflow is located in `.github/workflows/build-push-deploy-worker.yml`. It is configured to be triggered by any of these 3 events:
 - New commit to the **main** branch
 - PR merged to the **main** branch
 - Manual execution from Github
 
-## Github Actions variables and secrets:
+## Github Actions variables and secrets
 
 ### Variables:
 
@@ -34,7 +34,7 @@ The CI/CD workflow is located in `.github/workflows/build-push-deploy-worker.yml
 
 - AWS_OIDC_ROLE: The ARN of the role that will be assumed by this repository when deploying the container
 
-## CI/CD workflow steps:
+## CI/CD workflow steps
 
 - **Checkout**: This action checks-out your repository under $GITHUB_WORKSPACE, so the workflow can access it. This is an official action provided by Github
 - **Configure AWS OIDC credentials**: This action authenticates to AWS using OIDC. Instead of using static credentials, Github authenticates to AWS and gets access only for one hour, assuming the role specified in the variable AWS_OIDC_ROLE. This is an official action provided by AWS
