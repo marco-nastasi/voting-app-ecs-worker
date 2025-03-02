@@ -50,7 +50,7 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076
 
-      - name: Build, tag, and push vote image to Amazon ECR
+      - name: Build, tag, and push worker image to Amazon ECR
         id: build-worker-image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
@@ -74,7 +74,7 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
-      - name: Fill in the new image ID for vote in the Amazon ECS task definition
+      - name: Fill in the new image ID for worker in the Amazon ECS task definition
         id: task-def
         uses: aws-actions/amazon-ecs-render-task-definition@f87d1f66e0c6e10caeeb51f8344a0d25c899c533
         with:
@@ -88,13 +88,13 @@ jobs:
             DB_USER=postgres
           log-configuration-log-driver: awslogs
           log-configuration-options: |
-            awslogs-group=voting-app-ecs-vote
+            awslogs-group=voting-app-ecs-worker
             awslogs-create-group=true
             awslogs-region=${{ vars.AWS_REGION }}
             awslogs-stream-prefix=ecs
           secrets: DB_PASSWORD=${{ steps.build-worker-image.outputs.db_password }}
 
-      - name: Deploy Amazon ECS vote task definition
+      - name: Deploy Amazon ECS worker task definition
         uses: aws-actions/amazon-ecs-deploy-task-definition@8230edfe842008418c5275908cae75e51d3befb2
         with:
           task-definition: ${{ steps.task-def.outputs.task-definition }}
