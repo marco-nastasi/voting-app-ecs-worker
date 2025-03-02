@@ -1,0 +1,105 @@
+# This workflow uses actions that are not certified by GitHub.
+# They are provided by a third-party and are governed by
+# separate terms of service, privacy policy, and support
+# documentation.
+
+# GitHub recommends pinning actions to a commit SHA.
+# To get a newer version, you will need to update the SHA.
+# You can also reference a tag or branch, but the action may change without warning.
+
+name: Build and deploy Worker container in ECS
+
+# Top level permissions of the workflow
+permissions: {}
+
+# Will run on direct push or PR to "main" branch
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}          # set this to your preferred AWS region, e.g. us-west-1
+  CONTAINER_NAME: worker                      # set this to the name of the container in the
+                                              # containerDefinitions section of your task definition
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Configure AWS OIDC credentials
+        # Use Github OIDC to authenticate to AWS, assumming role
+        id: configure-aws
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076
+
+      - name: Build, tag, and push vote image to Amazon ECR
+        id: build-worker-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Build a docker container and
+          # push it to ECR so that it can
+          # be deployed to ECS.
+          export ECR_REPOSITORY=$(aws ssm get-parameter --name "/voting-app-ecs/ecr_repo_worker_id" --query "Parameter.Value" --output text)
+          export TASK_ROLE_ARN=$(aws ssm get-parameter --name "/voting-app-ecs/ecs_task_role_arn" --query "Parameter.Value" --output text)
+          export EXEC_ROLE_ARN=$(aws ssm get-parameter --name "/voting-app-ecs/ecs_execution_role_arn" --query "Parameter.Value" --output text)
+          echo "ecs_service=$(aws ssm get-parameter --name "/voting-app-ecs/ecs_service_worker_name" --query "Parameter.Value" --output text)" >> $GITHUB_OUTPUT
+          echo "ecs_cluster=$(aws ssm get-parameter --name "/voting-app-ecs/ecs_cluster_id" --query "Parameter.Value" --output text)" >> $GITHUB_OUTPUT
+          echo "private_subnets=$(aws ssm get-parameter --name "/voting-app-ecs/private_subnets_id" --query "Parameter.Value" --output text)" >> $GITHUB_OUTPUT
+          echo "redis_host=$(aws ssm get-parameter --name "/voting-app-ecs/redis_host_address" --query "Parameter.Value" --output text)" >> $GITHUB_OUTPUT
+          echo "db_host=$(aws ssm get-parameter --name "/voting-app-ecs/postgres_primary_address" --query "Parameter.Value" --output text)" >> $GITHUB_OUTPUT
+          echo "db_password=$(aws ssm get-parameter --name "/voting-app-ecs/postgres_secret_arn" --query "Parameter.Value" --output text)" >> $GITHUB_OUTPUT
+          cd source/worker
+          jq --arg task_role "$TASK_ROLE_ARN" --arg exec_role "$EXEC_ROLE_ARN" '.taskRoleArn = $task_role | .executionRoleArn = $exec_role' worker-task-definition.json > updated-worker-task-definition.json
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Fill in the new image ID for vote in the Amazon ECS task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@f87d1f66e0c6e10caeeb51f8344a0d25c899c533
+        with:
+          task-definition: source/worker/updated-worker-task-definition.json
+          container-name: worker
+          image: ${{ steps.build-worker-image.outputs.image }}
+          environment-variables: |
+            REDIS_HOST=${{ steps.build-worker-image.outputs.redis_host }}
+            REDIS_PORT=6379
+            DB_HOST=${{ steps.build-worker-image.outputs.db_host }}
+            DB_USER=postgres
+          log-configuration-log-driver: awslogs
+          log-configuration-options: |
+            awslogs-group=voting-app-ecs-vote
+            awslogs-create-group=true
+            awslogs-region=${{ vars.AWS_REGION }}
+            awslogs-stream-prefix=ecs
+          secrets: DB_PASSWORD=${{ steps.build-worker-image.outputs.db_password }}
+
+      - name: Deploy Amazon ECS vote task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@8230edfe842008418c5275908cae75e51d3befb2
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          desired-count: ${{ vars.NUMBER_OF_TASKS }}
+          run-task-subnets: ${{ steps.build-worker-image.outputs.private_subnets }}
+          service: ${{ steps.build-worker-image.outputs.ecs_service }}
+          cluster: ${{ steps.build-worker-image.outputs.ecs_cluster }}
+          wait-for-service-stability: true

@@ -1,0 +1,37 @@
+{
+    "family": "voting-app-ecs-worker",
+    "networkMode": "awsvpc",
+    "taskRoleArn": "",
+    "executionRoleArn": "",
+    "containerDefinitions": [
+        {
+            "name": "worker",
+            "image": "",
+            "essential": true
+        }
+    ],
+    "placementConstraints": [],
+    "requiresCompatibilities": [
+        "FARGATE"
+    ],
+    "cpu": "256",
+    "memory": "512",
+    "tags": [
+        {
+            "key": "Project",
+            "value": "voting-app-ecs"
+        },
+        {
+            "key": "Terraform",
+            "value": "false"
+        },
+        {
+            "key": "Version",
+            "value": "1.0"
+        },
+        {
+            "key": "Name",
+            "value": "voting-app-ecs-task-worker"
+        }
+    ]
+}
